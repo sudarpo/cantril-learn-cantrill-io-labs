@@ -1,3 +1,12 @@
+# Changes:
+# - Added Stage 2 VPC Peering and Routes
+# - Added Stage 3A RDS Instance
+# - Added STAGE 3B - CREATE THE EC2 INSTANCE
+# - Added STAGE 3C - INSTALL WORDPRESS Requirements
+
+# NOTES
+# - To continue with this lab, continue to do `STAGE 3D - MIGRATE WORDPRESS Content over` and `STAGE 3E - Fix Up Permissions & verify awsCatWeb works`
+
 AWSTemplateFormatVersion: 2010-09-09
 Description:  Migrating a Database with DMS (https://learn.cantrill.io courses)
 Metadata:
@@ -35,6 +44,7 @@ Parameters:
       - t3.small
       - t3.medium
       - t3.large
+      
   DBName:
     AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
     ConstraintDescription: must begin with a letter and contain only alphanumeric
@@ -412,7 +422,9 @@ Resources:
       Roles:
         - !Ref awsRole
   
-# VPC Peering Connection  
+##########################
+# VPC Peering Connection
+# STAGE 2A - Create a VPC peer between On-Premises and AWS
   vpcPeeringConnectionOnPremToAWS:
     Type: AWS::EC2::VPCPeeringConnection
     Properties:
@@ -420,10 +432,13 @@ Resources:
       PeerVpcId: !Ref onpremVPC
       Tags:
       - Key: Name
+        Value: A4L-ON-PREMISES-TO-AWS
+      - Key: Remarks
         Value: awsToOnPremiseVpcPeering
       - Key: Owner
         Value: DMS-DEMO
-        
+
+# STAGE 2B - Create Routes on the On-premises side
   onpremRouteToAWSVPCPeerRoute: 
     Type: 'AWS::EC2::Route'
     Properties:
@@ -433,6 +448,7 @@ Resources:
       VpcPeeringConnectionId:
         Ref: vpcPeeringConnectionOnPremToAWS
 
+# STAGE 2C - Create Routes on the AWS side
   awsRouteToOnPremVPCPeerPublicRTRoute: 
     Type: 'AWS::EC2::Route'
     Properties:
@@ -451,31 +467,41 @@ Resources:
       VpcPeeringConnectionId:
         Ref: vpcPeeringConnectionOnPremToAWS
 
-###########
-  DDDRDSSubnetGroup:
+##########################
+# STAGE 3A - CREATE THE RDS INSTANCE
+
+  # DB Subnet Group
+  A4LRDSSubnetGroup:
     Type: 'AWS::RDS::DBSubnetGroup'
     Properties:
-      DBSubnetGroupDescription: RDS DB Subnet Group
+      DBSubnetGroupDescription: A4LDBSNGROUP RDS DB Subnet Group
+      DBSubnetGroupName: A4LDBSNGROUP
       SubnetIds:
         - !Ref awsPrivateSubnetA
         - !Ref awsPrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: a4l-rds-db-subnet-group
+        - Key: Owner
+          Value: DMS-DEMO
 
-  DDDRDSDbInstance:
+  # RDS Instance
+  A4LRDSDbInstance:
     Type: 'AWS::RDS::DBInstance'
     DeletionPolicy: Delete
     Properties:
+      # DBInstanceIdentifier: a4lwordpress
+      DBInstanceClass: db.t3.small
       AllocatedStorage: 20
       StorageType: gp3
       StorageEncrypted: true
-      DBInstanceClass: db.t3.small
-      # DBInstanceIdentifier: DDDRDSDbInstance
       Engine: mariadb
       EngineVersion: '10.6.7'
       # Engine: postgres
       # EngineVersion: '14.4'
       # Port: !Ref CustomRDSDBPortNo
       DBName: !Ref DBName
-      DBSubnetGroupName: !Ref DDDRDSSubnetGroup
+      DBSubnetGroupName: !Ref A4LRDSSubnetGroup
       MasterUsername: !Ref DBUser
       MasterUserPassword: !Ref DBPassword
       BackupRetentionPeriod: 0
@@ -484,12 +510,16 @@ Resources:
         - !GetAtt awsSecurityGroupDB.GroupId
       Tags:
         - Key: Name
-          Value: DDDRDSDbInstance
+          Value: A4LRDSDbInstance
         - Key: Owner
           Value: DMS-DEMO
 
-# EC2 LaunchTemplate
-  DDDLaunchTemplate:
+##########################
+# STAGE 3B - CREATE THE EC2 INSTANCE
+# STAGE 3C - INSTALL WORDPRESS Requirements
+
+  # EC2 LaunchTemplate
+  A4LEC2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties: 
       LaunchTemplateName: DDD-Web-Server-LT
@@ -500,6 +530,8 @@ Resources:
               Value: Web Server
             - Key: OS
               Value: Linux
+            - Key: Owner
+              Value: DMS-DEMO
       LaunchTemplateData:
         InstanceType: !Ref AwsWebServerInstanceType
         InstanceMarketOptions:
@@ -513,7 +545,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: DDD-Web-Server
+                Value: A4L-AWS-Web
               - Key: Role
                 Value: Web Server
               - Key: OS
@@ -523,7 +555,7 @@ Resources:
           - ResourceType: volume
             Tags:
               - Key: Name
-                Value: DDD-Web-Server-EBS
+                Value: A4L-Web-EBS
               - Key: Role
                 Value: Web Server
               - Key: OS
@@ -543,13 +575,13 @@ Resources:
   # EC2 Instance
   AwsWebInstance:
     Type: 'AWS::EC2::Instance'
-    DependsOn: DDDLaunchTemplate
+    DependsOn: A4LEC2LaunchTemplate
     CreationPolicy:
       ResourceSignal:
         Timeout: PT10M
     Properties:
       LaunchTemplate:
         LaunchTemplateId:
-          Ref: DDDLaunchTemplate
+          Ref: A4LEC2LaunchTemplate
         Version: 1
       SubnetId: !Ref awsPublicSubnetA

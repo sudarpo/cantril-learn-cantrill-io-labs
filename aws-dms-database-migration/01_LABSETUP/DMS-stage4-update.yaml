@@ -1,0 +1,677 @@
+# Changes:
+# - Added Stage 2 VPC Peering and Routes
+# - Added Stage 3A RDS Instance
+# - Added STAGE 3B - CREATE THE EC2 INSTANCE
+# - Added STAGE 3C - INSTALL WORDPRESS Requirements
+# - Added STAGE 4A - CREATE THE DMS SUBNET GROUP
+# - Added STAGE 4B - CREATE THE DMS REPLICATION INSTANCE
+# - Added STAGE 4C - CREATE THE DMS SOURCE ENDPOINT
+# - Added STAGE 4D - CREATE THE DMS DESTINATION ENDPOINT (RDS)
+
+# NOTES
+# - To continue with this lab, continue to do `STAGE 3D - MIGRATE WORDPRESS Content over` and `STAGE 3E - Fix Up Permissions & verify awsCatWeb works`
+
+AWSTemplateFormatVersion: 2010-09-09
+Description:  Migrating a Database with DMS (https://learn.cantrill.io courses)
+Metadata:
+  LICENSE: Apache License Version 2.0
+
+Parameters:
+  AwsWebServerLatestAmiId:
+    Description: AMI for Instance (default is latest AmazonLinux2)
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  AwsWebServerInstanceType:
+    Description: "Instance type selection"
+    Type: String
+    Default: t3a.small
+    AllowedValues:
+      - t3a.micro
+      - t3a.small
+      - t3a.medium
+      - t3a.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  OnPremServerInstanceType:
+    Description: "Instance type selection"
+    Type: String
+    Default: t3a.micro
+    AllowedValues:
+      - t3a.micro
+      - t3a.small
+      - t3a.medium
+      - t3a.large
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      
+  DBName:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
+    Default: a4lwordpress
+    Description: The WordPress database name
+    MaxLength: '64'
+    MinLength: '1'
+    Type: String
+  DBUser:
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
+    Description: The WordPress database admin account username
+    Default: a4lwordpress
+    MaxLength: '16'
+    MinLength: '1'
+    Type: String
+  DBPassword:
+    AllowedPattern: '^[A-Za-z][a-zA-Z0-9@%$_-]{8,41}$'
+    ConstraintDescription: must contain only alphanumeric characters.
+    Description: The WordPress database admin account password
+    MaxLength: '41'
+    MinLength: '8'
+    Default: 'cats-dogs-rabbits-chickens'
+    Type: String
+  DBRootPassword:
+    AllowedPattern: '^[A-Za-z][a-zA-Z0-9@%$_-]{8,41}$'
+    ConstraintDescription: must contain only alphanumeric characters.
+    Description: MySQL root password
+    Default: 'cats-dogs-rabbits-chickens'
+    MaxLength: '41'
+    MinLength: '8'
+    Type: String
+
+Resources:
+##########################
+  onpremVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.10.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: onpremVPC
+        - Key: Owner
+          Value: DMS-DEMO
+
+  onpremInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: onpremIGW
+  onpremInternetGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref onpremVPC
+      InternetGatewayId: !Ref onpremInternetGateway
+  onpremPublicRouteTable: 
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref onpremVPC
+      Tags:
+      - Key: Name
+        Value: onpremPublicRT
+  onpremDefaultV4Route: 
+    Type: 'AWS::EC2::Route'
+    DependsOn: onpremInternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: onpremPublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId:
+        Ref: onpremInternetGateway
+
+  onpremPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref onpremVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 192.168.10.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: onprem-public
+
+  onpremPublicRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref onpremPublicSubnet
+      RouteTableId:
+        Ref: onpremPublicRouteTable
+
+  onpremSecurityGroupWeb:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref onpremVPC
+      GroupDescription: Control access to the Web EC2 Instance
+      SecurityGroupIngress: 
+        - Description: 'Allow HTTP IPv4 IN'
+          IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0'
+  onpremSecurityGroupDB:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref onpremVPC
+      GroupDescription: Control access to the DB EC2 Instance
+      SecurityGroupIngress: 
+        - Description: 'Allow MySQL IPv4 INBOUND VPC CIDR'
+          IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: '192.168.10.0/24'
+        - Description: 'Allow MySQL IPv4 INBOUND AWS CIDR'
+          IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: '10.16.0.0/16'
+
+  onpremRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  onpremInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref onpremRole
+
+  onpremCatWeb:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    Properties:
+      InstanceType: !Ref OnPremServerInstanceType
+      ImageId: "ami-0bf6ba120443f8e1f"
+      IamInstanceProfile: !Ref onpremInstanceProfile
+      SubnetId: !Ref onpremPublicSubnet
+      SecurityGroupIds: 
+        - !Ref onpremSecurityGroupWeb
+      Tags:
+        - Key: Name
+          Value: CatWeb
+        - Key: Owner
+          Value: DMS-DEMO
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          # Configure Wordpress
+          cd /var/www/html
+          cp ./wp-config-sample.php ./wp-config.php
+          sed -i "s/'localhost'/'${onpremCatDB.PrivateIp}'/g" wp-config.php
+          sed -i "s/'database_name_here'/'${DBName}'/g" wp-config.php
+          sed -i "s/'username_here'/'${DBUser}'/g" wp-config.php
+          sed -i "s/'password_here'/'${DBPassword}'/g" wp-config.php
+
+          /home/ec2-user/update_wp_ip.sh
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource onpremCatWeb --region ${AWS::Region}
+
+  onpremCatDB:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    Properties:
+      InstanceType: !Ref OnPremServerInstanceType
+      ImageId: "ami-0319a571f9ff661d7"
+      IamInstanceProfile: !Ref onpremInstanceProfile
+      SubnetId: !Ref onpremPublicSubnet
+      SecurityGroupIds: 
+        - !Ref onpremSecurityGroupDB
+      Tags:
+        - Key: Name
+          Value: CatDB
+        - Key: Owner
+          Value: DMS-DEMO
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource onpremCatDB --region ${AWS::Region}
+
+##########################
+  awsVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: awsVPC
+        - Key: Owner
+          Value: DMS-DEMO
+  awsInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+      - Key: Name
+        Value: awsIGW
+  awsInternetGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      VpcId: !Ref awsVPC
+      InternetGatewayId: !Ref awsInternetGateway
+  awsPublicRouteTable: 
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref awsVPC
+      Tags:
+      - Key: Name
+        Value: awsPublicRT
+  awsPrivateRouteTable: 
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref awsVPC
+      Tags:
+      - Key: Name
+        Value: awsPrivateRT
+  awsDefaultV4Route: 
+    Type: 'AWS::EC2::Route'
+    DependsOn: awsInternetGatewayAttachment
+    Properties:
+      RouteTableId:
+        Ref: awsPublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId:
+        Ref: awsInternetGateway
+
+  awsPublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref awsVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.16.48.0/20
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-publicA
+        - Key: Owner
+          Value: DMS-DEMO
+  awsPublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref awsVPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.16.112.0/20
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-publicB
+        - Key: Owner
+          Value: DMS-DEMO
+  awsPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref awsVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.16.32.0/20
+      Tags:
+        - Key: Name
+          Value: aws-privateA
+        - Key: Owner
+          Value: DMS-DEMO
+  awsPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref awsVPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.16.96.0/20
+      Tags:
+        - Key: Name
+          Value: aws-privateB
+        - Key: Owner
+          Value: DMS-DEMO
+
+  awsPublicARouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref awsPublicSubnetA
+      RouteTableId:
+        Ref: awsPublicRouteTable
+  awsPublicBRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref awsPublicSubnetB
+      RouteTableId:
+        Ref: awsPublicRouteTable
+  awsPrivateARouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref awsPrivateSubnetA
+      RouteTableId:
+        Ref: awsPrivateRouteTable
+  awsPrivateBRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref awsPrivateSubnetB
+      RouteTableId:
+        Ref: awsPrivateRouteTable
+
+  awsSecurityGroupWeb:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref awsVPC
+      GroupDescription: Control access to the Web EC2 Instance
+      SecurityGroupIngress: 
+        - Description: 'Allow HTTP IPv4 IN'
+          IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: '0.0.0.0/0'
+        - Description: 'Allow SSH IPv4 INBOUND VPC CIDR'
+          IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '10.16.0.0/16'
+        - Description: 'Allow SSH IPv4 INBOUND ONPREM CIDR'
+          IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '192.168.10.0/24'
+  awsSecurityGroupDB:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref awsVPC
+      GroupDescription: Control access to the DB EC2 Instance
+      SecurityGroupIngress: 
+        - Description: 'Allow MySQL IPv4 INBOUND ONPREM CIDR'
+          IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: '10.16.0.0/16'
+        - Description: 'Allow MySQL IPv4 INBOUND ONPREM CIDR'
+          IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          CidrIp: '192.168.10.0/24'
+
+  awsRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+  awsInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref awsRole
+  
+##########################
+# VPC Peering Connection
+# STAGE 2A - Create a VPC peer between On-Premises and AWS
+  vpcPeeringConnectionOnPremToAWS:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref awsVPC
+      PeerVpcId: !Ref onpremVPC
+      Tags:
+      - Key: Name
+        Value: A4L-ON-PREMISES-TO-AWS
+      - Key: Remarks
+        Value: awsToOnPremiseVpcPeering
+      - Key: Owner
+        Value: DMS-DEMO
+
+# STAGE 2B - Create Routes on the On-premises side
+  onpremRouteToAWSVPCPeerRoute: 
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId:
+        Ref: onpremPublicRouteTable
+      DestinationCidrBlock: '10.16.0.0/16'
+      VpcPeeringConnectionId:
+        Ref: vpcPeeringConnectionOnPremToAWS
+
+# STAGE 2C - Create Routes on the AWS side
+  awsRouteToOnPremVPCPeerPublicRTRoute: 
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId:
+        Ref: awsPublicRouteTable
+      DestinationCidrBlock: 192.168.10.0/24
+      VpcPeeringConnectionId:
+        Ref: vpcPeeringConnectionOnPremToAWS
+
+  awsRouteToOnPremVPCPeerPrivateRTRoute: 
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId:
+        Ref: awsPrivateRouteTable
+      DestinationCidrBlock: 192.168.10.0/24
+      VpcPeeringConnectionId:
+        Ref: vpcPeeringConnectionOnPremToAWS
+
+##########################
+# STAGE 3A - CREATE THE RDS INSTANCE
+
+  # DB Subnet Group
+  A4LRDSSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: A4LDBSNGROUP RDS DB Subnet Group
+      DBSubnetGroupName: A4LDBSNGROUP
+      SubnetIds:
+        - !Ref awsPrivateSubnetA
+        - !Ref awsPrivateSubnetB
+      Tags:
+        - Key: Name
+          Value: a4l-rds-db-subnet-group
+        - Key: Owner
+          Value: DMS-DEMO
+
+  # RDS Instance
+  A4LRDSDbInstance:
+    Type: 'AWS::RDS::DBInstance'
+    DeletionPolicy: Delete
+    Properties:
+      # DBInstanceIdentifier: a4lwordpress
+      DBInstanceClass: db.t3.small
+      AllocatedStorage: 20
+      StorageType: gp3
+      StorageEncrypted: true
+      Engine: mariadb
+      EngineVersion: '10.6.7'
+      # Engine: postgres
+      # EngineVersion: '14.4'
+      # Port: !Ref CustomRDSDBPortNo
+      DBName: !Ref DBName
+      DBSubnetGroupName: !Ref A4LRDSSubnetGroup
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      BackupRetentionPeriod: 0
+      AutoMinorVersionUpgrade: true
+      VPCSecurityGroups: 
+        - !GetAtt awsSecurityGroupDB.GroupId
+      Tags:
+        - Key: Name
+          Value: A4LRDSDbInstance
+        - Key: Owner
+          Value: DMS-DEMO
+
+##########################
+# STAGE 3B - CREATE THE EC2 INSTANCE
+# STAGE 3C - INSTALL WORDPRESS Requirements
+
+  # EC2 LaunchTemplate
+  A4LEC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: DDD-Web-Server-LT
+      TagSpecifications:
+        - ResourceType: launch-template # instance
+          Tags:
+            - Key: Role
+              Value: Web Server
+            - Key: OS
+              Value: Linux
+            - Key: Owner
+              Value: DMS-DEMO
+      LaunchTemplateData:
+        InstanceType: !Ref AwsWebServerInstanceType
+        InstanceMarketOptions:
+          MarketType: spot
+        ImageId: !Ref "AwsWebServerLatestAmiId"
+        IamInstanceProfile:
+          Name: !Ref "awsInstanceProfile"
+        SecurityGroupIds: 
+          - !GetAtt awsSecurityGroupWeb.GroupId
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: A4L-AWS-Web
+              - Key: Role
+                Value: Web Server
+              - Key: OS
+                Value: Linux
+              - Key: Owner
+                Value: DMS-DEMO
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: A4L-Web-EBS
+              - Key: Role
+                Value: Web Server
+              - Key: OS
+                Value: Linux
+              - Key: Owner
+                Value: DMS-DEMO
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum -y update 
+            yum -y install httpd mariadb
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            systemctl enable httpd
+            systemctl start httpd
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource AwsWebInstance --region ${AWS::Region}
+
+  # EC2 Instance
+  AwsWebInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: A4LEC2LaunchTemplate
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId:
+          Ref: A4LEC2LaunchTemplate
+        Version: 1
+      SubnetId: !Ref awsPublicSubnetA
+
+##########################
+# DMS Resources
+
+  # STAGE 4A - CREATE THE DMS SUBNET GROUP
+  A4LDMSDatabaseSubnetGroup: 
+    Type: "AWS::DMS::ReplicationSubnetGroup"
+    Properties: 
+      ReplicationSubnetGroupIdentifier: A4LDMSSNGROUP
+      ReplicationSubnetGroupDescription: A4LDMSSNGROUP DMS Subnet Group
+      SubnetIds:
+        - !Ref awsPrivateSubnetA
+        - !Ref awsPrivateSubnetB
+      Tags: 
+        - Key: Name
+          Value: a4l-rds-db-subnet-group
+        - Key: Owner
+          Value: DMS-DEMO
+
+  # STAGE 4B - CREATE THE DMS REPLICATION INSTANCE
+  A4LDMSReplicationInstance:
+    Type: AWS::DMS::ReplicationInstance
+    Properties: 
+      ReplicationInstanceIdentifier: A4LONPREMTOAWS
+      # ResourceIdentifier: A4LONPREMTOAWS
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      # AvailabilityZone: String
+      # EngineVersion: String
+      # KmsKeyId: String
+      MultiAZ: false
+      PreferredMaintenanceWindow: 'Sat:14:00-Sat:15:00'
+      PubliclyAccessible: false
+      ReplicationInstanceClass: dms.t3.small
+      ReplicationSubnetGroupIdentifier: !Ref A4LDMSDatabaseSubnetGroup
+      VpcSecurityGroupIds: 
+        - !GetAtt awsSecurityGroupDB.GroupId
+      Tags: 
+        - Key: Name
+          Value: A4LONPREMTOAWS
+        - Key: Role
+          Value: A4L DMS Replication Instance
+        - Key: Owner
+          Value: DMS-DEMO
+
+  # STAGE 4C - CREATE THE DMS SOURCE ENDPOINT
+  SourceOnPremiseEndpoint:
+    Type: "AWS::DMS::Endpoint"
+    Properties:
+      EndpointIdentifier: catdb-on-premises-endpoint
+      EndpointType: source
+      # DatabaseName: onpremise-db-source-endpoint
+      EngineName: mariadb
+      Username: !Ref DBUser
+      Password: !Ref DBPassword
+      ServerName: !GetAtt onpremCatDB.PrivateIp
+      Port: 3306
+      Tags: 
+        - Key: Name
+          Value: onpremise-db-source-endpoint
+        - Key: Role
+          Value: source-endpoint
+        - Key: Owner
+          Value: DMS-DEMO
+
+  # STAGE 4D - CREATE THE DMS DESTINATION ENDPOINT (RDS)
+  TargetAWSRDSInstanceEndpoint:
+    Type: "AWS::DMS::Endpoint"
+    Properties:
+      EndpointIdentifier: a4lwordpress-rds-db-endpoint
+      EndpointType: target
+      # DatabaseName: onpremise-db-target-endpoint
+      EngineName: mariadb
+      Username: !Ref DBUser
+      Password: !Ref DBPassword
+      ServerName: !GetAtt A4LRDSDbInstance.Endpoint.Address
+      Port: 3306
+      Tags: 
+        - Key: Name
+          Value: aws-rds-db-target-endpoint
+        - Key: Role
+          Value: target-endpoint
+        - Key: Owner
+          Value: DMS-DEMO
+
+
