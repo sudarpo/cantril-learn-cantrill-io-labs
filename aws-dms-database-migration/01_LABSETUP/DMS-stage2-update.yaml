@@ -126,6 +126,8 @@ Resources:
       Tags:
         - Key: Name
           Value: onprem-public
+        - Key: Owner
+          Value: DMS-DEMO
 
   onpremPublicRouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
@@ -138,29 +140,39 @@ Resources:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       VpcId: !Ref onpremVPC
-      GroupDescription: Control access to the Web EC2 Instance
+      GroupDescription: onprem Web SecurityGroup for Web EC2 Instance
       SecurityGroupIngress: 
         - Description: 'Allow HTTP IPv4 IN'
           IpProtocol: tcp
           FromPort: '80'
           ToPort: '80'
           CidrIp: '0.0.0.0/0'
+      Tags:
+      - Key: Name
+        Value: onpremWebSecurityGroup
+      - Key: Owner
+        Value: DMS-DEMO
   onpremSecurityGroupDB:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       VpcId: !Ref onpremVPC
-      GroupDescription: Control access to the DB EC2 Instance
+      GroupDescription: onprem DB SecurityGroup for DB EC2 Instance
       SecurityGroupIngress: 
-        - Description: 'Allow MySQL IPv4 INBOUND VPC CIDR'
+        - Description: 'Allow MySQL IPv4 INBOUND ONPREM VPC CIDR'
           IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
           CidrIp: '192.168.10.0/24'
-        - Description: 'Allow MySQL IPv4 INBOUND AWS CIDR'
+        - Description: 'Allow MySQL IPv4 INBOUND AWS VPC CIDR'
           IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
           CidrIp: '10.16.0.0/16'
+      Tags:
+      - Key: Name
+        Value: onpremDBSecurityGroup
+      - Key: Owner
+        Value: DMS-DEMO
 
   onpremRole:
     Type: 'AWS::IAM::Role'
@@ -360,39 +372,49 @@ Resources:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       VpcId: !Ref awsVPC
-      GroupDescription: Control access to the Web EC2 Instance
+      GroupDescription: aws Web SecurityGroup for AWS Web EC2 Instance
       SecurityGroupIngress: 
         - Description: 'Allow HTTP IPv4 IN'
           IpProtocol: tcp
           FromPort: '80'
           ToPort: '80'
           CidrIp: '0.0.0.0/0'
-        - Description: 'Allow SSH IPv4 INBOUND VPC CIDR'
+        - Description: 'Allow SSH IPv4 INBOUND AWS VPC CIDR'
           IpProtocol: tcp
           FromPort: '22'
           ToPort: '22'
           CidrIp: '10.16.0.0/16'
-        - Description: 'Allow SSH IPv4 INBOUND ONPREM CIDR'
+        - Description: 'Allow SSH IPv4 INBOUND ONPREM VPC CIDR'
           IpProtocol: tcp
           FromPort: '22'
           ToPort: '22'
           CidrIp: '192.168.10.0/24'
+      Tags:
+      - Key: Name
+        Value: awsWebSecurityGroup
+      - Key: Owner
+        Value: DMS-DEMO
   awsSecurityGroupDB:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
       VpcId: !Ref awsVPC
-      GroupDescription: Control access to the DB EC2 Instance
+      GroupDescription: aws DB SecurityGroup for AWS DB EC2 Instance
       SecurityGroupIngress: 
-        - Description: 'Allow MySQL IPv4 INBOUND ONPREM CIDR'
+        - Description: 'Allow MySQL IPv4 INBOUND AWS VPC CIDR'
           IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
           CidrIp: '10.16.0.0/16'
-        - Description: 'Allow MySQL IPv4 INBOUND ONPREM CIDR'
+        - Description: 'Allow MySQL IPv4 INBOUND ONPREM VPC CIDR'
           IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
           CidrIp: '192.168.10.0/24'
+      Tags:
+      - Key: Name
+        Value: awsDBSecurityGroup
+      - Key: Owner
+        Value: DMS-DEMO
 
   awsRole:
     Type: 'AWS::IAM::Role'
