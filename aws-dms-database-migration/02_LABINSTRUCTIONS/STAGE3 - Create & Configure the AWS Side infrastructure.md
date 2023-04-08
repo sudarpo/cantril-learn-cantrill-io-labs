@@ -75,13 +75,13 @@ Wait for the `awsCatWeb` instance to be in a `Running` state with `2/2 checks` b
 
 # STAGE 3C - INSTALL WORDPRESS Requirements
 
-Select the `awsCatWeb` instance, right click, `Connect`  
-Select `Session Manager` and click `Connect`  
-When connected type `sudo bash` to run a privileged bash shell
-then update the instance with a `yum -y update` and wait for it to complete.  
-Then install the apache web server with `yum -y install httpd mariadb`  (the mariadb part is for the mysql tools)
-Then install php with `amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2 `  
-then make sure apache is running and set to run at startup with 
+- Select the `awsCatWeb` instance, right click, `Connect`  
+- Select `Session Manager` and click `Connect`  
+- When connected type `sudo bash` to run a privileged bash shell
+- update the instance with a `yum -y update` and wait for it to complete.  
+- install the apache web server with `yum -y install httpd mariadb`  (the mariadb part is for the mysql tools)  
+- install php with `amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2 `  
+- make sure apache is running and set to run at startup with 
 
 ```
 systemctl enable httpd
