@@ -36,9 +36,8 @@ In the following screen, you will be able to upload the images that will be used
 - [Dogs-part5](https://learn-cantrill-labs.s3.amazonaws.com/aws-pet-rekognition-ecr/Dog-Dataset-part5.zip)
 - [Dogs-part6](https://learn-cantrill-labs.s3.amazonaws.com/aws-pet-rekognition-ecr/Dog-Dataset-part6.zip)
 
-Unzip the files. You should see a total of 12 foldeds.  
+Unzip the files. You should see a total of 12 folders.  
 Currently, the AWS console allows you to upload 30 images at a time, so you will need to do it in multiple attempts. 
-
 
 - Click on the top-right "Actions" button and then click on "Add images to training dataset" to start uploading the images. 
 - Click Choose files
@@ -50,12 +49,12 @@ Currently, the AWS console allows you to upload 30 images at a time, so you will
 Wait until you see `You successfully saved the changes to your training dataset.`. Then repeat the process for the remaining 5 folders of Cat images (*we will be doing the dog images in a separate step*)
 
 Once you have uploaded all `6` of the cat image folders, click `Start Labeling` then click `Add Labels`, and select `Add Labels`.  
-Add a label `cat` click `Add label` 
+Add a label `cat`, click `Add label` 
 and add another `dog`, click `Add label` then click `Save`  
 
 Select `Unlabeled` on the `Labels` list on the left, and go through each page of images :
 
-- select all the images
+- Select all the images
 - Click `Assign Image-Level Labels`
 - Type `cat` and select the `cat` label and click `Assign`
 

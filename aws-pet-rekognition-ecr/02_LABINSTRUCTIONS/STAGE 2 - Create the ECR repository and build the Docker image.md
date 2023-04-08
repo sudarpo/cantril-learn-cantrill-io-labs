@@ -18,9 +18,8 @@ Make sure to select "Private" and enter **"skynet-repo"** as the name of the rep
 
 Click the "Create repository" button.
 
-We need the URI of the repository that we just created. It will have the following format:
-
-`<AWS Account ID>.dkr.ecr.us-east-1.amazonaws.com/skynet-repo`
+We need the URI of the repository that we just created. It will have the following format:  
+`ECR_IMAGE_URI = <AWS Account ID>.dkr.ecr.us-east-1.amazonaws.com/skynet-repo`
 
 The `<AWS Account ID>` is the ID of your AWS account. You can find it in the upper-right corner of the AWS console.
 

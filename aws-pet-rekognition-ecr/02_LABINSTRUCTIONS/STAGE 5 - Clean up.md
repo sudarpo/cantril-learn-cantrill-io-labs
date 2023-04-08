@@ -4,6 +4,8 @@ In this part of the DEMO, you will be cleaning up the resources you created.
 
 # STAGE 5 - Clean up
 
+## ECS
+
 Move to the ECS console: https://us-east-1.console.aws.amazon.com/ecs/home?region=us-east-1#.
 
 Click on “Clusters” and then click on the “SkynetCluster” cluster.
@@ -20,11 +22,21 @@ Click “Delete cluster” button.
 
 Type delete SkynetCluster and click "Delete" button.
 
+## CloudMap (Namespaces)
+
+Head to https://us-east-1.console.aws.amazon.com/cloudmap/home/namespaces?region=us-east-1
+
+Delete `SkynetCluster` Namespace
+
+## ECR
+
 Move to the ECR console: https://us-east-1.console.aws.amazon.com/ecr/home?region=us-east-1
 
 Select the skynet-repo and click “Delete” button.
 
 Type delete and click “Delete” button.
+
+## Rekognition
 
 Go to the Rekognition console: https://us-east-1.console.aws.amazon.com/rekognition/home?region=us-east-1#/
 
@@ -39,6 +51,8 @@ Go back to the projects by clicking in the left-hand menu on "Projects".
 Select the “skynet-cat-and-dogs” and click “Delete” button.
 
 Type delete and click “Delete” button.
+
+## S3 Bucket
 
 Go to the S3 console: https://s3.console.aws.amazon.com/s3/home?region=us-east-1&region=us-east-1
 
@@ -65,6 +79,8 @@ Select the bucket.
 Click Empty.
 
 Type permanently delete, and empty.
+
+## Cloudformation
 
 Go to the Cloudformation console: https://console.aws.amazon.com/cloudformation/home?region=us-east-1
 
