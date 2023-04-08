@@ -93,39 +93,34 @@ You now have a running apache web server with the ability to connect to the word
 # STAGE 3D - MIGRATE WORDPRESS Content over
 
 You're going to edit the SSH config on this machine to allow password authentication on a temporary basis.  
-You will use this to copy the wordpress data across to the awsCatWeb machine from the on-premises CatWeb Machine  
+You will use this to copy the wordpress data across to the awsCatWeb machine from the on-premises CatWeb Machine.  
 
-run a `nano /etc/ssh/sshd_config`  
-locate `PasswordAuthentication no` and change to `PasswordAuthentication yes` , then `ctrl+o` to save and `ctrl+x` to exit.  
-then set a password on the ec2-user user  
-run a `passwd ec2-user` and enter the `DBPassword` you noted down at the start of the demo.  
+- run a `nano /etc/ssh/sshd_config`  
+- locate `PasswordAuthentication no` and change to `PasswordAuthentication yes` , then `ctrl+o` to save and `ctrl+x` to exit.  
+- then set a password on the ec2-user user  
+- run a `passwd ec2-user` and enter the `DBPassword` you noted down at the start of the demo.  
+
 **this is only temporary.. we're using the same password throughout the demo to make things easier and less prone to mistakes**
 
-restart SSHD to make those changes with `service sshd restart`  or `systemctl restart sshd`
-
-
-Return back to the EC2 console https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#Instances:  
+- restart SSHD to make those changes with `service sshd restart` or `systemctl restart sshd`
+- Return back to the EC2 console https://console.aws.amazon.com/ec2/v2/home?region=us-east-1#Instances:  
 with the `awsCatWeb` instance selected, note down its `Private IPV4 Address` you will need this in a moment.  
-
-Select the `CatWeb` instance, right click, `Connect`  
-Select `Session Manager` and click `Connect`  
-When connected type `sudo bash` to run a privileged bash shell  
-
-move to the webroot folder by typing `cd /var/www/`  
-
-run a `scp -rp html ec2-user@privateIPofawsCatWeb:/home/ec2-user` and answer `yes` to the authenticity warning.  
-this will copy the wordpress local files from `CatWeb` (on-premises) to `awsCatWeb` (aws)
+- Select the `CatWeb` instance, right click, `Connect`  
+- Select `Session Manager` and click `Connect`  
+- When connected type `sudo bash` to run a privileged bash shell  
+- move to the webroot folder by typing `cd /var/www/`  
+- run a `scp -rp html ec2-user@privateIPofawsCatWeb:/home/ec2-user` and answer `yes` to the authenticity warning.  
+- this will copy the wordpress local files from `CatWeb` (on-premises) to `awsCatWeb` (aws)
 
 **now move back to the `awsCatWeb` server, if you dont have it open still, reconnect as per below**
 
-Select the `awsCatWeb` instance, right click, `Connect`  
-Select `Session Manager` and click `Connect`  
-When connected type `sudo bash` to run a privileged bash shell
-
-move to the `ec2-user` home folder by doing a `cd /home/ec2-user`  
-then do an `ls -la` and you should see the html folder you just copied.  
+- Select the `awsCatWeb` instance, right click, `Connect`  
+- Select `Session Manager` and click `Connect`  
+- When connected type `sudo bash` to run a privileged bash shell
+- move to the `ec2-user` home folder by doing a `cd /home/ec2-user`  
+- then do an `ls -la` and you should see the html folder you just copied.  
 `cd html`  
-next copy all of these files into the webroot of `awsCatWeb` by doing a `cp * -R /var/www/html/`
+- next copy all of these files into the webroot of `awsCatWeb` by doing a `cp * -R /var/www/html/`
 
 
 # STAGE 3E - Fix Up Permissions & verify `awsCatWeb` works
